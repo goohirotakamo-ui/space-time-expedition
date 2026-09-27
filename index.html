@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1725">
+  <meta name="description" content="宇宙の始まりから太陽の未来へ。宇宙船で観察・撮影・採集し、自分の発見を手書き欄付きPDFにまとめる学習ゲーム。">
+  <title>時空調査船 | 宇宙を旅して、発見を伝えよう</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230b1725'/%3E%3Cpath d='M16 5 26 26 16 21 6 26Z' fill='none' stroke='%237bd8db' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">メイン画面へ</a>
+  <header class="app-header">
+    <a class="brand" href="#" aria-label="時空調査船 船内へ"><span class="brand-emblem" aria-hidden="true">✦</span><span>時空調査船<small>SPACE–TIME EXPEDITION</small></span></a>
+    <nav aria-label="メインメニュー" id="navigation"></nav>
+    <div class="header-actions"><button id="rank-button" class="rank-pill" title="称号を見る"></button><button class="icon-button" id="settings-button" aria-label="設定・データの保存"></button></div>
+  </header>
+  <main id="main" tabindex="-1"></main>
+  <div id="toast-region" class="toast-region" role="status" aria-live="polite"></div>
+  <dialog id="modal"><div id="modal-content"></div></dialog>
+  <div id="transition" class="transition" hidden><div class="jump-rings"></div><p id="transition-label"></p><button class="button subtle" id="skip-transition">演出をスキップ</button></div>
+  <input type="file" id="import-file" accept=".json,application/json" hidden>
+  <noscript><p class="no-script">このアプリにはJavaScriptが必要です。ブラウザの設定をご確認ください。</p></noscript>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
