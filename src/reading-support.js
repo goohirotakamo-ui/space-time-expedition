@@ -1,6 +1,8 @@
 // Plain text only: do not pass markup or the output of rubyText back into these
 // functions. Convert the original content once, where it enters the UI.
 export const TERM_READINGS = Object.freeze({
+  '岩片':'がんぺん', '地殻':'ちかく', '蒸気':'じょうき', '冷却':'れいきゃく',
+  '外層':'がいそう', '一様':'いちよう', '放出':'ほうしゅつ', '金属':'きんぞく',
   '宇宙背景放射':'うちゅうはいけいほうしゃ',
   '宇宙の晴れ上がり':'うちゅうのはれあがり',
   '絶対温度':'ぜったいおんど',

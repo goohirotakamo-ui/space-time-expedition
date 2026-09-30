@@ -1,21 +1,46 @@
 import {sceneById,sampleById} from './content.js';
 import {drawPhoto} from './camera.js';
 import {drawSolarPhoto,rendererReady} from './solar-renderer.js';
-import {eraConfig,bodyById} from './solar-system.js';
+import {bodyById} from './solar-system.js';
+import {loadImage} from './image-loader.js';
+import {getRecordedSampleLocation} from './sample-locations.js';
+import {sampleObservation} from './sample-observation.js';
+import {recordScience,recordScienceLines} from './record-science.js';
+export {loadImage} from './image-loader.js';
 const FONT='"Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif';
-const cache=new Map();
-export function loadImage(src) {
-  if(!cache.has(src)) cache.set(src,new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>{cache.delete(src);reject(new Error('画像を読み込めませんでした。通信を確認して、もう一度お試しください。'));};img.src=src;}));
-  return cache.get(src);
-}
 function wrap(ctx,text,x,y,maxWidth,lineHeight){let line='';for(const char of text){if(ctx.measureText(line+char).width>maxWidth&&line){ctx.fillText(line,x,y);line=char;y+=lineHeight;}else line+=char;}if(line)ctx.fillText(line,x,y);return y+lineHeight;}
 function contain(ctx,img,x,y,w,h){const scale=Math.min(w/img.width,h/img.height);ctx.drawImage(img,x+(w-img.width*scale)/2,y+(h-img.height*scale)/2,img.width*scale,img.height*scale);}
 function box(ctx,x,y,w,h,fill,stroke){ctx.beginPath();ctx.roundRect(x,y,w,h,9);if(fill){ctx.fillStyle=fill;ctx.fill();}if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=.65;ctx.stroke();}}
 function label(ctx,s,x,y,size=12,bold=false,color='#173443'){ctx.font=`${bold?700:400} ${size}px ${FONT}`;ctx.fillStyle=color;ctx.fillText(s,x,y);}
+function wrappedLines(ctx,text,width){
+  const lines=[];
+  for(const paragraph of String(text).split('\n')){
+    let line='';for(const char of paragraph){if(line&&ctx.measureText(line+char).width>width){lines.push(line);line=char;}else line+=char;}
+    lines.push(line);
+  }
+  return lines;
+}
+function recordText(ctx,rows,x,y,width,height,size=10,minSize=7.5){
+  let lines,lineHeight;
+  for(;;){
+    ctx.font=`400 ${size}px ${FONT}`;lineHeight=size*1.3;
+    lines=rows.flatMap(text=>wrappedLines(ctx,text,width));
+    if(lines.length*lineHeight<=height||size<=minSize)break;
+    size=Math.max(minSize,size-.25);
+  }
+  ctx.fillStyle='#173443';
+  lines.forEach((text,i)=>ctx.fillText(text,x,y+i*lineHeight));
+}
+function comparativeRecord(photo,scene){
+  const science=recordScience(photo);
+  return science?[`年代：${science.age}`,`段階：${science.stage}`,`色：${science.visual.colorLabel}`,`背景：${science.visual.backgroundLabel}`]
+    :[`年代：${scene.era}`,'段階・表示方式：この旧記録では保存していません。'];
+}
 function writingBox(ctx,y,h,n,title,hint,lines=true){box(ctx,514,y,292,h,'#fff','#acbcc4');label(ctx,`${n}  ${title}`,527,y+24,14,true);label(ctx,hint,527,y+43,9,false,'#536975');if(lines){ctx.strokeStyle='#c5d0d5';ctx.lineWidth=.5;for(let line=y+78;line<y+h-10;line+=30){ctx.beginPath();ctx.moveTo(528,line);ctx.lineTo(792,line);ctx.stroke();}}}
 export async function renderSlide(item,title,index=1,total=1,scale=2.4){
   await document.fonts.ready;
-  if(item.record.solar||item.record.photos?.some(p=>p.solar))await rendererReady;
+  const sampleView=item.kind==='sample'&&sampleById(item.record.id)?.kind==='data'?sampleObservation(item.record):null;
+  if(sampleView||item.record.solar||item.record.photos?.some(p=>p.solar))await rendererReady;
   const canvas=document.createElement('canvas');canvas.width=Math.round(842*scale);canvas.height=Math.round(595*scale);const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.fillStyle='#fff';ctx.fillRect(0,0,842,595);
   label(ctx,'時空調査船  /  わたしの宇宙調査',36,35,10,true,'#187b84');label(ctx,`${index} / ${total}`,759,35,10);
   let titleSize=25;while(titleSize>14){ctx.font=`700 ${titleSize}px ${FONT}`;if(ctx.measureText(title).width<=485)break;titleSize--;}
@@ -24,26 +49,31 @@ export async function renderSlide(item,title,index=1,total=1,scale=2.4){
   if(item.kind==='compare'){
     label(ctx,'時代をならべて、見比べよう',36,124,13,true);
     const [a,b]=item.record.scenes.map(sceneById);
-    for(const [i,s] of [a,b].entries()) {const photo=item.record.photos?.[i];box(ctx,36+i*230,141,218,151,'#09131d');if(photo?.solar)drawSolarPhoto(ctx,photo.solar,36+i*230,141,218,151);else{const img=await loadImage(s.image);drawPhoto(ctx,img,photo?.camera,36+i*230,141,218,151);}label(ctx,s.name,36+i*230,313,11,true);label(ctx,s.era,36+i*230,332,10);}
+    for(const [i,s] of [a,b].entries()) {const photo=item.record.photos?.[i],x=36+i*230;box(ctx,x,141,218,113,'#09131d');if(photo?.solar)drawSolarPhoto(ctx,photo.solar,x,141,218,113);else{const img=await loadImage(s.image);drawPhoto(ctx,img,photo?.camera,x,141,218,113);}label(ctx,s.name,x,273,11,true);recordText(ctx,comparativeRecord(photo,s),x,289,215,72,9,7.5);}
     if(item.record.id==='sun-history'){
-      label(ctx,'大きさの比較（模式図・直径の目安）',36,367,11,true);
-      ctx.fillStyle='#ffdc78';ctx.beginPath();ctx.arc(73,407,.53,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#91a8b3';ctx.beginPath();ctx.moveTo(74,408);ctx.lineTo(93,426);ctx.stroke();label(ctx,'現在 = 1',38,445,10);
-      ctx.fillStyle='#e8986e';ctx.beginPath();ctx.arc(293,407,53,0,Math.PI*2);ctx.fill();label(ctx,'赤色巨星：数十〜数百倍',214,475,10);
-      label(ctx,'図は約100倍の例。写真2枚の縮尺は異なります。',36,498,9,false,'#536975');
-    }else{box(ctx,36,355,448,126,'#eff6f7');label(ctx,'比べるヒント',50,379,11,true,'#187b84');ctx.font=`12px ${FONT}`;ctx.fillStyle='#173443';wrap(ctx,'色・雲・海の有無に注目しよう。風景は科学に基づく再現です。',50,404,414,23);}
+      label(ctx,'大きさの比較（模式図・直径の目安）',36,380,11,true);
+      ctx.fillStyle='#ffdc78';ctx.beginPath();ctx.arc(73,425,.43,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#91a8b3';ctx.beginPath();ctx.moveTo(74,426);ctx.lineTo(93,445);ctx.stroke();label(ctx,'現在 = 1',38,466,10);
+      ctx.fillStyle='#e8986e';ctx.beginPath();ctx.arc(293,425,43,0,Math.PI*2);ctx.fill();label(ctx,'赤色巨星：数十〜数百倍',214,492,10);
+      label(ctx,'図は約100倍の例。写真2枚の縮尺は異なります。',36,515,9,false,'#536975');
+    }else{box(ctx,36,374,448,143,'#eff6f7');label(ctx,'比べるヒント',50,398,11,true,'#187b84');ctx.font=`12px ${FONT}`;ctx.fillStyle='#173443';wrap(ctx,'色・雲・海の有無に注目しよう。時代や表示方式の違いも確かめよう。過去と未来の細部は想像模型です。',50,423,414,23);}
     writingBox(ctx,118,129,1,'見つけたこと','例：左の写真には＿＿が見える。');writingBox(ctx,260,129,2,'前と後を比べよう','例：前は＿＿、後は＿＿に変わった。');writingBox(ctx,402,114,3,'授業とのつながり','例：授業で習った＿＿とつながる。');
   }else{
     const sample=item.kind==='sample'?sampleById(item.record.id):null;
     label(ctx,sample?'選んだサンプル・観測記録':'選んだ写真',36,124,13,true);
-    box(ctx,36,140,448,253,sample?.kind==='material'?'#f0f4f6':'#09131d');
-    if(item.record.solar)drawSolarPhoto(ctx,item.record.solar,48,149,424,226);else{const img=await loadImage(sample?.image||scene.image);if(sample)contain(ctx,img,48,149,424,226);else drawPhoto(ctx,img,item.record.camera,48,149,424,226);}
-    label(ctx,sample?'ゲーム内の模擬サンプル・観測データ':item.record.solar?'ゲーム内で撮影した3D宇宙（配置・過去未来は学習モデル）':'ゲーム内で撮影した科学的再現の風景',36,412,9,false,'#536975');
-    box(ctx,36,432,448,82,'#eff6f7');label(ctx,'調査の記録',50,453,11,true,'#187b84');label(ctx,`時代：${item.record.solar?eraConfig(item.record.solar.era).label:scene.era}`,50,474,11);label(ctx,sample?`方法：${sample.method}`:`場所：${item.record.solar?(bodyById(item.record.solar.subject,item.record.solar)?.name||"宇宙の全天"):scene.location}`,50,495,11);
+    box(ctx,36,140,448,184,sample?.kind==='material'?'#f0f4f6':'#09131d');
+    if(sampleView||item.record.solar)drawSolarPhoto(ctx,sampleView||item.record.solar,48,149,424,166);else{const img=await loadImage(sample?.image||scene.image);if(sample)contain(ctx,img,48,149,424,166);else drawPhoto(ctx,img,item.record.camera,48,149,424,166);}
+    label(ctx,sample?'ゲーム内の模擬サンプル・観測データ':item.record.solar?'ゲーム内で撮影した3D宇宙（配置・過去未来は学習モデル）':'ゲーム内で撮影した科学的再現の風景',36,341,9,false,'#536975');
+    const site=sample?getRecordedSampleLocation(item.record):null;
+    const science=recordScience(item.record),scienceLines=recordScienceLines(item.record).slice(0,7);
+    const place=sample?`場所：${site?.label||scene.location}`:`場所：${science?(bodyById(science.world.subject,science.world)?.name||'宇宙の全天'):scene.location}`;
+    const rows=scienceLines.length?[...scienceLines.slice(0,3),place,...(sample?[`方法：${sample.method}`]:[]),...scienceLines.slice(3)]
+      :[`年代：${scene.era}`,'段階・表示方式：この旧記録では保存していません。',place,...(sample?[`方法：${sample.method}`]:[]),'観測値：この旧記録では保存していません。'];
+    box(ctx,36,353,448,175,'#eff6f7');label(ctx,'撮影・採集したときの記録',50,373,11,true,'#187b84');recordText(ctx,rows,50,391,420,133,10,7.5);
     if(sample){writingBox(ctx,118,129,1,'見つけたこと','例：色は＿＿、形は＿＿。絵でもよい。',false);writingBox(ctx,260,129,2,'比べる・順序を考える','例：＿＿と比べると、＿＿がちがう。');writingBox(ctx,402,114,3,'授業とのつながり','例：授業で習った＿＿とつながる。');}
     else{writingBox(ctx,118,129,1,'見つけたこと','例：写真には＿＿が見える。');writingBox(ctx,260,129,2,'ほかの時代・天体と比べる','例：＿＿と比べると、＿＿がちがう。');writingBox(ctx,402,114,3,'授業とのつながり','例：授業で習った＿＿とつながる。');}
   }
   ctx.strokeStyle='#bac8ce';ctx.lineWidth=.6;ctx.beginPath();ctx.moveTo(36,542);ctx.lineTo(806,542);ctx.stroke();label(ctx,'白い欄に、自分の言葉や絵で書き込もう。',36,563,9,false,'#536975');
-  if(item.record.solar||item.record.photos?.some(p=>p.solar)){
+  if(sampleView||item.record.solar||item.record.photos?.some(p=>p.solar)){
     label(ctx,'画像：Solar System Scope（縮小・合成・CG加工）solarsystemscope.com/textures',36,577,6.5,false,'#536975');
     label(ctx,'CC BY 4.0 — creativecommons.org/licenses/by/4.0/',36,586,6.5,false,'#536975');
   }

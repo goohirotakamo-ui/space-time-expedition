@@ -1,11 +1,15 @@
 import {SCENES,SAMPLES,COMPARISONS,MISSIONS,sceneById} from './content.js';
 import {defaultCamera,normalizeCamera} from './camera.js';
 import {defaultSolar,normalizeSolar,visibleBody,solarPhotoName,bodyById} from './solar-system.js';
+import {getSamplingContext,getRecordedSampleLocation} from './sample-locations.js';
+import {defaultPlayback,normalizePlayback,fixedEpochWorld} from './epoch-playback.js';
 export const STORAGE_KEY = 'space-time-expedition-v1';
 export const PHOTO_LIMIT = 60;
 const photoLimitMessage = '写真は60枚までです。アルバムで不要な写真の詳細を開き、削除してから撮影してください。';
-export const freshState = () => ({version:1,started:false,currentScene:'young-earth',camera:defaultCamera(),flightMode:'solar',whiteDwarfView:'artwork',solar:defaultSolar(),historySolar:defaultSolar('young-earth'),observed:[],photos:[],samples:[],selected:[],titles:{},pdfCreated:false,activeMission:'origin',sound:false,reducedMotion:false,minutes:0});
-export const usesDwarfArtwork = state => state.flightMode==='history'&&state.currentScene==='white-dwarf'&&state.whiteDwarfView!=='explore';
+export const freshState = () => ({version:1,playback:defaultPlayback(),started:false,currentScene:'young-earth',camera:defaultCamera(),flightMode:'solar',whiteDwarfView:'explore',solar:defaultSolar(),historySolar:defaultSolar('young-earth'),observed:[],photos:[],samples:[],selected:[],titles:{},pdfCreated:false,activeMission:'origin',sound:false,reducedMotion:false,minutes:0});
+// The live overview and free flight now use one world. Legacy artwork photographs
+// still retain their image and camera, but are never used as a second live sky.
+export const usesDwarfArtwork = () => false;
 // Scene labels on older 3D records describe the flight mode, so classify their
 // saved epoch and photographed subject without changing the original snapshot.
 export function photoScene(photo) {
@@ -53,13 +57,16 @@ export function validateState(input) {
   const sceneIds=new Set(SCENES.map(s=>s.id)), sampleIds=new Set(SAMPLES.map(s=>s.id));
   if(!sceneIds.has(input.currentScene)) throw new Error('不明な行き先が含まれています。');
   state.currentScene=input.currentScene;
+  state.playback=normalizePlayback(input.playback,input.tour);
   state.camera=normalizeCamera(input.camera);
   state.flightMode=input.flightMode==='history'?'history':'solar';
-  state.whiteDwarfView=input.whiteDwarfView==='explore'?'explore':'artwork';
-  state.solar=normalizeSolar(input.solar);
-  state.solar.motion='paused';
-  state.historySolar=normalizeSolar(input.historySolar?{...input.historySolar,era:state.currentScene}:defaultSolar(state.currentScene));
-  state.historySolar.motion='paused';
+  state.whiteDwarfView='explore';
+  state.solar=fixedEpochWorld({...input.solar,modelVersion:2},{playing:false});
+  state.historySolar=fixedEpochWorld(input.historySolar?{...input.historySolar,era:state.currentScene,modelVersion:2}:defaultSolar(state.currentScene),{playing:false});
+  if(state.currentScene==='white-dwarf'&&(input.whiteDwarfView!=='explore'||!Number.isFinite(input.historySolar?.eventProgress))){
+    const overview=defaultSolar('white-dwarf');
+    state.historySolar={...state.historySolar,position:overview.position,orientation:overview.orientation,target:'sun'};
+  }
   const seenIds=new Set();
   state.photos=input.photos.map(p=>{
     if(!p || typeof p.id!=='string'||!/^p-[a-zA-Z0-9-]{1,80}$/.test(p.id)||seenIds.has(p.id)||(!sceneIds.has(p.scene)&&p.scene!=='solar-system')) throw new Error('写真の記録を読み込めません。');
@@ -67,18 +74,31 @@ export function validateState(input) {
     if(p.scene==='solar-system'||p.solar){
       const v=p.solar;
       if(!v||v.version!==1||!Array.isArray(v.position)||v.position.length!==3||!v.position.every(n=>Number.isFinite(n)&&Math.abs(n)<=1000)||!Array.isArray(v.orientation)||v.orientation.length!==4||!v.orientation.every(Number.isFinite)||Math.hypot(...v.orientation)<1e-8)throw new Error('3D写真の記録を読み込めません。');
-      return {id:p.id,scene:p.scene,created:validDate(p.created),solar:{...normalizeSolar(v),subject:bodyById(v.subject,v)?.id||null}};
+      const saved={...v,modelVersion:v.modelVersion===2?2:1,colorMode:v.colorMode==='natural'?'natural':'enhanced'};
+      return {id:p.id,scene:p.scene,created:validDate(p.created),solar:{...normalizeSolar(saved),subject:bodyById(saved.subject,saved)?.id||null,...(v.observationVersion===1?{observationVersion:1}:{})}};
     }
     return {id:p.id,scene:p.scene,created:validDate(p.created),...(p.camera?{camera:normalizeCamera(p.camera)}:{})};
   });
   const seenSamples=new Set();
   state.samples=input.samples.map(s=>{
     if(!s || !sampleIds.has(s.id)||seenSamples.has(s.id)) throw new Error('サンプルの記録を読み込めません。');
-    seenSamples.add(s.id); return {id:s.id,created:validDate(s.created)};
+    seenSamples.add(s.id);
+    const record={id:s.id,created:validDate(s.created)};
+    if(s.sampling){
+      const p=s.sampling;
+      if(!['present',...sceneIds].includes(p.era)||typeof p.siteId!=='string'||!Array.isArray(p.position)||p.position.length!==3||!p.position.every(n=>Number.isFinite(n)&&Math.abs(n)<=1000)||!Number.isFinite(p.simulationDays)||p.simulationDays<0||p.simulationDays>1e9||!Number.isFinite(p.eventProgress)||p.eventProgress<0||p.eventProgress>1)throw new Error('採集地点の記録を読み込めません。');
+      record.sampling={siteId:p.siteId,era:p.era,position:[...p.position],simulationDays:p.simulationDays,rotationDaysElapsed:Number.isFinite(p.rotationDaysElapsed)?Math.max(0,Math.min(1e9,p.rotationDaysElapsed)):p.simulationDays,eventProgress:p.eventProgress};
+      record.sampling.modelVersion=p.modelVersion===2?2:1;
+      record.sampling.colorMode=p.colorMode==='natural'?'natural':'enhanced';
+      if(p.observationVersion===1)record.sampling.observationVersion=1;
+      if(!getRecordedSampleLocation(record))throw new Error('不明な採集地点が含まれています。');
+    }
+    return record;
   });
   if(input.observed.some(x=>!sceneIds.has(x))) throw new Error('観測地点の記録を読み込めません。');
   state.observed=[...new Set(input.observed)];
   state.started=!!input.started; state.pdfCreated=!!input.pdfCreated; state.sound=!!input.sound; state.reducedMotion=!!input.reducedMotion;
+  if(state.reducedMotion)state.playback.playing=false;
   state.activeMission=MISSIONS.some(m=>m.id===input.activeMission)?input.activeMission:'origin';
   state.minutes=Number.isFinite(input.minutes)?Math.min(1440,Math.max(0,Math.floor(input.minutes))):0;
   const keys=new Set(items(state).map(x=>x.key));
@@ -94,17 +114,16 @@ export function recordPhoto(state,id) {
 }
 export function recordSolarPhoto(state,id){
   if(state.photos.length>=PHOTO_LIMIT)throw new Error(photoLimitMessage);
-  const snapshot=normalizeSolar(state.solar);
+  const snapshot={...normalizeSolar({...state.solar,motion:'paused',eventPlaying:false}),observationVersion:1};
   state.photos.push({id,scene:'solar-system',created:new Date().toISOString(),solar:{...snapshot,subject:visibleBody(snapshot)?.id||null}});
 }
 export function isSceneSubject(scene,snapshot){
   return photoScene({solar:{...snapshot,subject:visibleBody(snapshot)?.id||null}})===scene;
 }
 export function recordWorldPhoto(state,id){
-  if(usesDwarfArtwork(state)){recordPhoto(state,id);return;}
   if(state.flightMode==='solar'){recordSolarPhoto(state,id);return;}
   if(state.photos.length>=PHOTO_LIMIT)throw new Error(photoLimitMessage);
-  const snapshot=normalizeSolar(state.historySolar),scene=isSceneSubject(state.currentScene,snapshot)?state.currentScene:'solar-system';
+  const snapshot={...normalizeSolar({...state.historySolar,motion:'paused',eventPlaying:false}),observationVersion:1},scene=isSceneSubject(state.currentScene,snapshot)?state.currentScene:'solar-system';
   state.photos.push({id,scene,created:new Date().toISOString(),solar:{...snapshot,subject:visibleBody(snapshot)?.id||null}});
 }
 export function removePhoto(state,id){
@@ -119,6 +138,10 @@ export function removePhoto(state,id){
 }
 export function recordSample(state,id) {
   const sample=SAMPLES.find(s=>s.id===id);
-  if(!sample||sample.scene!==state.currentScene) throw new Error('この場所では採集できません。');
-  if(!hasSample(state,id)) state.samples.push({id,created:new Date().toISOString()});
+  const world=state.flightMode==='solar'?state.solar:state.historySolar;
+  const context=getSamplingContext(world);
+  if(context.phaseMessage)throw new Error(context.phaseMessage);
+  const site=context.available.find(location=>location.sampleId===id);
+  if(!sample||!site) throw new Error('この場所では採集できません。調査地点へ移動してください。');
+  if(!hasSample(state,id))state.samples.push({id,created:new Date().toISOString(),sampling:{siteId:site.id,era:world.era,position:[...world.position],simulationDays:world.simulationDays||0,rotationDaysElapsed:world.rotationDaysElapsed||0,eventProgress:world.eventProgress??1,modelVersion:world.modelVersion??2,colorMode:world.colorMode||'natural',observationVersion:1}});
 }
