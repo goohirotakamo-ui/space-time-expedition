@@ -1,3 +1,4 @@
+import {PARTICLE_STAGES,particleStage,isParticleView} from './early-universe-particles.js';
 import {sceneById} from './content.js';
 import {eventStage} from './space-events.js';
 import {formationStage} from './formation-model.js';
@@ -12,8 +13,9 @@ export function recordScience(record){
   if(!world)return null;
   const formation=formationStage(world),event=eventStage(world.era,world.eventProgress);
   const scene=sceneById(world.era==='present'?'earth':world.era);
-  const age=formation?.ageLabel||(world.era==='early-universe'&&event?.index<3?'約138億年前・晴れ上がりより前':scene.era);
-  const stage=world.era==='solar-nebula'?formation.label:event?.label||'現在の太陽系';
+  const particle=isParticleView(world)?PARTICLE_STAGES[particleStage(world)]:null;
+  const age=particle?.age||formation?.ageLabel||(world.era==='early-universe'&&event?.index<3?'約138億年前・晴れ上がりより前':scene.era);
+  const stage=particle?.title||(world.era==='solar-nebula'?formation.label:event?.label||'現在の太陽系');
   const visual=visualProfile(world);
   const observation=world.observationVersion===1?observeWorld(world):null;
   return {world,age,stage,visual,observation,legacy:world.modelVersion===1};

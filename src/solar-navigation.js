@@ -1,4 +1,11 @@
-import {bodyById,sub,add,mul,unit,length,cross,safeMove,safeRadius,lookAt} from './solar-system.js';
+import {bodyById,sub,add,mul,unit,length,cross,safeMove,safeRadius,lookAt,advanceWorld} from './solar-system.js';
+
+// Keep manual movement and free looking in the selected body's moving frame.
+// Accelerated orbits must not leave the observer behind while a key is held or
+// the window is dragged. Interplanetary routes retain their independent motion.
+export function advanceFlightWorld(state,seconds,{autopilot=false,cruise=false}={}){
+  return advanceWorld(state,seconds,{trackTarget:state.motionTrackTarget!==false&&!autopilot&&!cruise});
+}
 
 // Plan only when the destination changes or automatic flight starts. Every leg
 // is checked against every current body, including the moon the ship leaves.

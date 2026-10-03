@@ -1,7 +1,7 @@
 import {getBodies,advanceWorld,approachPosition,AU_KM,LIGHT_KM_S,bodyById,defaultSolar,normalizeSolar,normalizeTimeScale,nearestBody,visibleBody,basis,turn,lookAt,sub,add,mul,length,dot,unit,speedAU,timeRate,safeMove,stepSolar,stepAutopilot} from './solar-system.js';
 import {createSolarRenderer} from './solar-renderer.js';
 import {drawOrbitMap} from './orbit-map.js';
-import {findSafeWaypoint,cometOverviewPose} from './solar-navigation.js';
+import {findSafeWaypoint,cometOverviewPose,advanceFlightWorld} from './solar-navigation.js';
 import {eventForEra,eventStage} from './space-events.js';
 import {earlyUniverseDiagram} from './event-diagram.js';
 import {formationStage} from './formation-model.js';
@@ -15,6 +15,7 @@ const WORLD_RATES=[.05,.1,.25,.5,1,2,5,10,20,30,100,365.25,3652.5,36525];
 const worldRateIndex=value=>WORLD_RATES.reduce((best,rate,index)=>Math.abs(Math.log(rate/(value||.25)))<Math.abs(Math.log(WORLD_RATES[best]/(value||.25)))?index:best,0);
 const daysText=days=>days>=365.25?`${(days/365.25).toLocaleString('ja-JP',{maximumFractionDigits:1})}年`:days<1?`${(days*24).toLocaleString('ja-JP',{maximumFractionDigits:1})}時間`:`${days.toLocaleString('ja-JP',{maximumFractionDigits:2})}日`;
 const bodyOptions=s=>getBodies(s).filter(body=>body.targetable!==false&&body.kind!=='moon');
+const planetLabels={mercury:'水星',venus:'金星',earth:'地球',mars:'火星',jupiter:'木星',saturn:'土星',uranus:'天王星',neptune:'海王星'};
 const optionList=(bodies,selected)=>bodies.map(b=>`<option value="${b.id}" ${b.id===selected?'selected':''}>${b.name}${b.name==='微惑星の模型'&&b.id.startsWith('belt-')?` ${b.id.slice(5)}`:''}${b.kind==='comet'?' · 彗星':b.kind==='asteroid'?' · 小天体':''}</option>`).join('');
 // Each option is a still stage, not a playback position. Keep the final view
 // identical to the existing completed model; sample the other stages midway.
@@ -40,7 +41,6 @@ export function mountSolarFlight(root,{state,onChange,onSave,blocked,photograph,
   function draw(){
     if(failed)return;
     try{renderer.draw(current);}catch(e){failed=true;stop();onError(e.message);return;}
-    const near=nearestBody(current.position,current),d=near?length(sub(current.position,near.position)):Infinity;
     const destination=bodyById(current.target,current),remaining=destination?length(sub(destination.position,current.position)):0,subject=visibleBody(current);
     const event=eventForEra(current.era),stage=eventStage(current.era,current.eventProgress);
     const formation=formationStage(current),visual=visualProfile(current);
@@ -49,13 +49,15 @@ export function mountSolarFlight(root,{state,onChange,onSave,blocked,photograph,
     syncSelect(root.querySelector('[data-solar-color-mode]'),current.colorMode);
     root.querySelector('.solar-color-note').textContent=visual.colorNote;
     root.querySelector('.solar-background-note').textContent=`${visual.backgroundLabel}。${visual.backgroundNote}`;
-    if(stage)root.querySelector('.scene-label .location-kicker').textContent=`${current.era==='young-earth'?'衝突後の地球と月':stage.label} / 360°`;
     const observable=bodyOptions(current),targetSelect=root.querySelector('[data-solar-target]');
     const optionKey=observable.map(body=>`${body.id}:${body.name}`).join('|');
     const optionsChanged=optionKey!==lastBodyOptions;
     if(optionsChanged){
       targetSelect.innerHTML='<option value="" disabled>行き先を選ぶ</option>'+optionList(observable,current.target);
       targetSelect.disabled=observable.length===0;
+      const routeSelect=root.querySelector('[data-solar-route]'),routeValue=routeSelect.value;
+      routeSelect.innerHTML=optionList(observable,observable.some(body=>body.id===routeValue)?routeValue:current.target);
+      routeSelect.disabled=observable.length===0;
       root.querySelectorAll('[data-solar-near],[data-solar-face],[data-solar-go]').forEach(button=>{button.disabled=observable.length===0;});
       lastBodyOptions=optionKey;
     }
@@ -63,8 +65,6 @@ export function mountSolarFlight(root,{state,onChange,onSave,blocked,photograph,
     root.querySelector('[data-solar-tail]').hidden=destination?.kind!=='comet';
     const arrival=destination?destination.radius*(destination.id==='saturn'?7:4):0;
     const route=waypoint?length(sub(waypoint,current.position))+Math.max(0,length(sub(destination.position,waypoint))-arrival):Math.max(0,remaining-arrival);
-    const dwarfOverview=current.era==='white-dwarf'&&subject?.id==='sun'&&length(sub(subject.position,current.position))>400;
-    root.querySelector('.solar-location').textContent=dwarfOverview?'白色矮星と星雲の全景':near?(d<near.radius*20?`${near.name}の周辺`:'惑星間を航行中'):'まだ星のない宇宙';
     root.querySelector('.solar-status').textContent=destination?`目的地：${destination.name} · 中心まで ${distanceText(remaining)} · 光なら ${duration(remaining*AU_KM/LIGHT_KM_S)}${autopilot?` · 自動航行中 · 到着まで約${duration(route/speedAU(current))}（画面上の目安）`:cruise?' · 前進中':' · 探索中'}`:'選んだ宇宙の段階を360°で観察。まだ太陽系や恒星はありません。';
     root.querySelector('.solar-clock').textContent=`船の移動距離 ${distanceText(current.travelled)} / 航行に対応する時間 ${duration(current.elapsed)}`;
     root.querySelector('.solar-speed-note').textContent=current.speed==='inspect'?'観察用の移動：天体との距離に合わせた移動補助':current.speed==='light'?'光速 299,792 km/s · 実時間と同じ速さ':`光速 299,792 km/s · 航行時間を${current.timeScale}倍に早送り`;
@@ -75,9 +75,8 @@ export function mountSolarFlight(root,{state,onChange,onSave,blocked,photograph,
     root.querySelector('#solar-time-help').textContent=current.speed==='fast-light'?`1秒で${current.timeScale}秒分進む · 飛行中も変更できます`:'倍率を動かすと「光速・時間短縮」になります';
     const b=basis(current.orientation),v=destination?sub(destination.position,current.position):[0,0,-1],z=dot(v,b.forward),px=dot(v,b.right)/z,py=dot(v,b.up)/z;
     const target=root.querySelector('.solar-target-marker');
-    const diameterPixels=destination?destination.radius/Math.max(remaining,destination.radius)/.532*canvas.clientHeight:0;
-    if(destination&&z>0&&Math.abs(px)<.51*current.aspect&&Math.abs(py)<.5){target.hidden=false;target.style.left=`${50+px/(.532*current.aspect)*50}%`;target.style.top=`${50-py/.532*50}%`;target.textContent=`◇ 行き先：${destination.name}${diameterPixels<2?'（遠方）':''}`;}else target.hidden=true;
-    root.querySelector('.solar-bearing').textContent=!destination?'全方向に広がる太古の光。色や濃淡は理解を助ける再現です。':dwarfOverview&&destination.id==='sun'?'中心の白色矮星は光の点です。まわりに放出されたガスが広がっています。':target.hidden?`行き先 ${destination.name} は画面の外。操縦の「正面へ」で確認できます。`:diameterPixels<2?`${destination.name}は遠く、小さすぎて形が見えません。操縦の「近くで見る」で観察できます。`:`${destination.name}が見える方向です。◇は行き先の目印です。`;
+    const planetLabel=destination?.kind==='planet'?planetLabels[destination.id]:null;
+    if(planetLabel&&z>0&&Math.abs(px)<.51*current.aspect&&Math.abs(py)<.5){target.hidden=false;target.style.left=`${50+px/(.532*current.aspect)*50}%`;target.style.top=`${50-py/.532*50}%`;target.textContent=planetLabel;}else target.hidden=true;
     const scale=root.querySelector('.solar-body-scale');
     const diameter=destination?.radiusKm*2,ratio=destination?.radiusKm/6371;
     scale.textContent=destination?`${destination.name}：直径 約${diameter.toLocaleString('ja-JP',{maximumFractionDigits:diameter<10?2:0})} km（現在の地球の約${ratio.toLocaleString('ja-JP',{maximumSignificantDigits:3})}倍）。表面まで ${distanceText(Math.max(0,remaining-destination.radius))}。写る主な天体：${subject?.name||'星空'}。`:'まだ太陽や惑星はありません。選んだ宇宙の段階を観察します。';
@@ -119,7 +118,7 @@ export function mountSolarFlight(root,{state,onChange,onSave,blocked,photograph,
       const axes={};for(const a of new Set(keys.values()))for(const [k,v] of Object.entries(actions[a]))axes[k]=(axes[k]||0)+v;
       if(cruise)axes.z=1;result=stepSolar(current,axes,dt);
     }
-    update(advanceWorld(result.state,worldDt,{trackTarget:current.motionTrackTarget!==false&&!autopilot&&!cruise&&!keys.size&&!drag}));draw();
+    update(advanceFlightWorld(result.state,worldDt,{autopilot,cruise}));draw();
     if(disposed||failed)return;
     if(result.collision){releaseManualInputs();onMessage(result.collision==='boundary'?'観測エリアの端で停止しました。地球に戻れます。':`${bodyById(result.collision,current)?.name}の安全距離で停止しました。横や上下へ移動できます。`);draw();continueAnimation();return;}
     if(result.arrived){releaseManualInputs();onMessage(`${bodyById(current.target,current).name}に到着。観察速度に切り替えました。`);draw();continueAnimation();return;}
@@ -143,10 +142,10 @@ export function mountSolarFlight(root,{state,onChange,onSave,blocked,photograph,
   bind(document,'focusin',e=>{if(isFlightEditingTarget(e.target)&&keys.size){keys.clear();flush();continueAnimation();}});
   function observeNear(id=current.target){
     const body=bodyById(id,current);if(!body)return;
-    manualControl();releaseManualInputs();const position=approachPosition(body);
+    manualControl();releaseManualInputs();const position=approachPosition(body,{aspect:current.aspect});
     update({...current,target:body.id,position,orientation:lookAt(sub(body.position,position)),speed:'inspect'});flush();draw();continueAnimation();onMessage(`${body.name}の近くへ移動しました（観察用の移動補助）。`);
   }
-  bind(root.querySelector('[data-solar-target]'),'change',e=>{if(!allowed())return;manualControl();releaseManualInputs();const target=bodyById(e.target.value,current);if(!target)return;update({...current,target:target.id,orientation:lookAt(sub(target.position,current.position))});flush();draw();continueAnimation();onMessage(`${target.name}への航路を選びました。「光速で向かう」で出発します。`);});
+  bind(root.querySelector('[data-solar-target]'),'change',e=>{if(allowed())observeNear(e.target.value);});
   for(const b of root.querySelectorAll('[data-solar-speed]'))bind(b,'click',()=>{if(!allowed())return;manualControl();update({...current,speed:b.dataset.solarSpeed});flush();draw();continueAnimation();});
   bind(root.querySelector('[data-solar-color-mode]'),'change',e=>{if(!allowed())return;update({...current,colorMode:e.target.value==='enhanced'?'enhanced':'natural'});flush();draw();});
   const timeSlider=root.querySelector('[data-solar-time-scale]');
@@ -154,7 +153,7 @@ export function mountSolarFlight(root,{state,onChange,onSave,blocked,photograph,
   bind(timeSlider,'input',()=>{if(!allowed())return;manualControl();update({...current,speed:'fast-light',timeScale:normalizeTimeScale(timeSlider.valueAsNumber)});draw();continueAnimation();});
   bind(timeSlider,'change',flush);
   bind(root.querySelector('[data-solar-face]'),'click',()=>{if(!allowed()||!bodyById(current.target,current))return;manualControl();update({...current,orientation:lookAt(sub(bodyById(current.target,current).position,current.position))});flush();draw();continueAnimation();});
-  bind(root.querySelector('[data-solar-go]'),'click',()=>{if(!allowed()||!bodyById(current.target,current))return;manualControl();releaseManualInputs();update({...current,speed:current.speed==='inspect'?'fast-light':current.speed});autopilot=true;if(!detour()){draw();return;}draw();wake();});
+  bind(root.querySelector('[data-solar-go]'),'click',()=>{const target=bodyById(root.querySelector('[data-solar-route]').value,current);if(!allowed()||!target)return;manualControl();releaseManualInputs();update({...current,target:target.id,orientation:lookAt(sub(target.position,current.position)),speed:current.speed==='inspect'?'fast-light':current.speed});autopilot=true;if(!detour()){draw();return;}draw();wake();});
   bind(root.querySelector('[data-solar-cruise]'),'click',()=>{if(!allowed())return;manualControl();if(cruise){releaseManualInputs();draw();continueAnimation();return;}autopilot=false;cruise=true;root.querySelector('[data-solar-cruise]').setAttribute('aria-pressed','true');wake();});
   bind(root.querySelector('[data-solar-stop]'),'click',()=>{stop();draw();});
   bind(root.querySelector('[data-solar-home]'),'click',()=>{if(!allowed())return;manualControl();releaseManualInputs();update(advanceWorld({...defaultSolar(current.era),eventProgress:current.eventProgress,motion:current.motion,motionDaysPerSecond:current.motionDaysPerSecond,timeScale:current.timeScale,colorMode:current.colorMode},0));root.querySelector('[data-solar-target]').value=current.target;flush();draw();continueAnimation();onMessage('この段階の出発位置に戻りました（移動支援）。');});
@@ -183,7 +182,7 @@ export function mountSolarFlight(root,{state,onChange,onSave,blocked,photograph,
   bind(canvas,'webglcontextlost',e=>{e.preventDefault();failed=true;stop();onError('3D表示が中断されました。再読み込みで再開できます。');});
   resize();continueAnimation();
   renderer.ready?.then(()=>{if(!abort.signal.aborted)draw();}).catch(e=>{if(!abort.signal.aborted)onError(e.message);});
-  return {stop,resume,dispose(){suspend();disposed=true;observer.disconnect();abort.abort();renderer.dispose();}};
+  return {stop,resume,continueAnimation,dispose(){suspend();disposed=true;observer.disconnect();abort.abort();renderer.dispose();}};
 }
 
 export function solarControls(s){
@@ -196,7 +195,9 @@ export function solarControls(s){
   <section class="flight-pane" data-flight-pane="pilot" aria-label="操縦パネル" hidden>
     ${header('pilot','操縦')}
     <label class="flight-target-control">調べる天体<select ${hasBodies?'':'disabled'} data-solar-target aria-label="調べる天体"><option value="" disabled>天体を選ぶ</option>${optionList(bodies,s.target)}</select></label>
-    <div class="flight-route-actions"><button ${hasBodies?'':'disabled'} class="primary" data-solar-near>近くで見る</button><button ${hasBodies?'':'disabled'} data-solar-go>光速で向かう</button><button ${hasBodies?'':'disabled'} data-solar-face>正面へ</button><button data-solar-home>出発位置</button><button data-solar-tail ${bodyById(s.target,s)?.kind==='comet'?'':'hidden'}>彗星の尾</button></div>
+    <p class="flight-target-help">選ぶと近くへ移動します（観察用の移動補助）。</p>
+    <div class="flight-route-actions"><button ${hasBodies?'':'disabled'} class="primary" data-solar-near>近くで見る</button><button ${hasBodies?'':'disabled'} data-solar-face>正面へ</button><button data-solar-home>出発位置</button><button data-solar-tail ${bodyById(s.target,s)?.kind==='comet'?'':'hidden'}>彗星の尾</button></div>
+    <details class="flight-light-route"><summary>光速の旅</summary><label>行き先<select data-solar-route aria-label="光速の旅の行き先">${optionList(bodies,s.target)}</select></label><button ${hasBodies?'':'disabled'} data-solar-go>光速で向かう</button></details>
     <div class="solar-speed flight-speed-options" aria-label="航行速度"><button data-solar-speed="inspect">観察</button><button data-solar-speed="light">光速</button><button data-solar-speed="fast-light">光速・時間短縮</button></div>
     <div class="solar-time-control flight-compact-range"><label for="solar-time-scale">光速の早送り <output for="solar-time-scale" aria-live="off" data-solar-time-value>${timeScale}倍</output></label><input id="solar-time-scale" data-solar-time-scale type="range" min="10" max="100" step="1" value="${timeScale}" aria-label="光速の早送り倍率" aria-valuetext="${timeScale}倍" aria-describedby="solar-time-help"><p id="solar-time-help" class="solar-time-help" hidden></p></div>
     <p class="flight-keyboard-help">W・S：前後 ／ A・D：左右 ／ Q・E：下降・上昇<br>窓をドラッグ・矢印キーで見回す。選択後は窓をクリックして操縦。</p>

@@ -2,7 +2,7 @@
 // future systems are teaching models, not a dated ephemeris. Sources and limits:
 // docs/world-model.md (NASA/NSSDC planetary and satellite fact sheets).
 import {normalizeEventProgress,normalizeEventSpeed,eventForEra} from './space-events.js';
-import {formationBodyModel,normalizeModelVersion,normalizeColorMode} from './formation-model.js';
+import {formationBodyModel,planetSurfaceModel,normalizeModelVersion,normalizeColorMode} from './formation-model.js';
 export const AU_KM = 149597870.7;
 export const LIGHT_KM_S = 299792.458;
 export const LIGHT_AU_S = LIGHT_KM_S / AU_KM;
@@ -101,6 +101,10 @@ export function getBodies(state={}){
     const formation=era==='solar-nebula'&&normalizeModelVersion(state.modelVersion)===2?formationBodyModel(source,state):null;
     if(era==='solar-nebula'&&normalizeModelVersion(state.modelVersion)===2&&!formation)continue;
     const body={...source,hasRings:source.id==='saturn'&&!future&&!['solar-nebula','young-earth'].includes(era)};
+    if(body.id==='saturn'){
+      body.ringState=body.hasRings?'present-observed':future?'future-uncertain-omitted':'past-uncertain-omitted';
+      body.ringNote=body.hasRings?'現在の土星の環を観測に基づいて示します。':'環の形成時期・存続は未確定のため、この時代は省略しています。環がなかったとの断定ではありません。';
+    }
     if(['solar-nebula','young-earth'].includes(era)&&body.kind==='planet'){
       body.eraAppearance=YOUNG_MATERIALS[body.id];body.fact=YOUNG_FACTS[body.id];body.illustrativePast=true;
       if(era==='young-earth')body.name=`若い${body.name}`;
@@ -134,6 +138,9 @@ export function getBodies(state={}){
         }
       }
     }
+    const surface=planetSurfaceModel(source,state);
+    if(surface){Object.assign(body,surface);if(surface.surfaceNote&&era!=='solar-nebula')body.fact+=` ${surface.surfaceNote}`;}
+    if(era==='white-dwarf'&&body.id!=='sun'&&body.kind!=='planet'&&normalizeModelVersion(state.modelVersion)!==1)body.eraAppearance=48;
     // A planet is removed only when this illustrative photosphere reaches its
     // orbit. Earth remains here: its ultimate fate is not decided by this model.
     if(era==='red-giant'&&['mercury','venus','earth'].includes(body.id)&&body.orbit-body.radius<=giantRadius)continue;
@@ -171,21 +178,39 @@ export function lookAt(direction){
   const d=unit(direction),yaw=Math.atan2(d[0],d[2])*180/Math.PI,pitch=Math.asin(Math.max(-1,Math.min(1,d[1])))*180/Math.PI;
   return turn([0,0,0,1],yaw,pitch);
 }
-export function safeRadius(body){return body.radius*(body.id==='saturn'?2.6:body.irregular?2.05:1.12);}
-export function approachPosition(body){
+export function safeRadius(body){return body.radius*(body.id==='saturn'&&body.hasRings!==false?2.6:body.irregular?2.05:1.12);}
+export function approachPosition(body,{aspect=16/9}={}){
   const outward=body.id==='sun'?[0,0,1]:unit(mul(body.position,-1));
-  return add(body.position,mul(unit(add(outward,[0,.22,0])),body.radius*(body.id==='saturn'?7:4)));
+  const hasRings=body.id==='saturn'&&body.hasRings!==false;
+  let direction=unit(add(outward,[0,.22,0]));
+  if(hasRings){
+    const normal=[Math.sin(body.axialTilt||0),Math.cos(body.axialTilt||0),0];
+    let planar=sub(outward,mul(normal,dot(outward,normal)));
+    if(length(planar)<1e-6)planar=[0,0,1];
+    direction=add(mul(unit(planar),Math.cos(Math.PI/6)),mul(normal,Math.sin(Math.PI/6)));
+  }
+  // Keep familiar framing on laptop screens, but fit the same physical rings
+  // when the cockpit is tall/narrow. .532 is the renderer's vertical half-FOV.
+  const viewAspect=Number.isFinite(aspect)?Math.max(.5,Math.min(6,aspect)):16/9;
+  const frameDistance=(hasRings?2.4:1)/(.532*Math.min(1,viewAspect)*.85);
+  const distance=body.radius*Math.max(hasRings?7:4,frameDistance);
+  return add(body.position,mul(direction,distance));
 }
 export function normalizeTimeScale(value){return Number.isFinite(value)?Math.max(10,Math.min(100,Math.round(value))):10;}
 export function defaultSolar(era='present'){
   const config=eraConfig(era),body=bodyById(config.defaultTarget,{era:config.id});
   const position=config.id==='white-dwarf'?[0,40,680]:config.id==='solar-nebula'?mul(unit(approachPosition(body)),INNER_DISK_SAMPLE_DISTANCE_AU):body?approachPosition(body):[0,0,0];
-  return {version:1,modelVersion:2,colorMode:'natural',era:config.id,simulationDays:0,rotationDaysElapsed:0,motion:'paused',motionDaysPerSecond:.25,motionTrackTarget:true,eventProgress:1,eventPlaying:false,eventSpeed:1,position,orientation:body?lookAt(sub(body.position,position)):[0,0,0,1],target:body?.id??null,speed:'inspect',timeScale:10,elapsed:0,travelled:0,aspect:16/9};
+  return {version:1,modelVersion:2,colorMode:'natural',era:config.id,...(config.id==='early-universe'?{particleModelVersion:2,particleSeconds:0,lightStyle:'wave'}:{}),simulationDays:0,rotationDaysElapsed:0,motion:'paused',motionDaysPerSecond:.25,motionTrackTarget:true,eventProgress:1,eventPlaying:false,eventSpeed:1,position,orientation:body?lookAt(sub(body.position,position)):[0,0,0,1],target:body?.id??null,speed:'inspect',timeScale:10,elapsed:0,travelled:0,aspect:16/9};
 }
 export function normalizeSolar(value){
   const s=defaultSolar(value?.era);
   if(!value||typeof value!=='object')return s;
   s.modelVersion=normalizeModelVersion(value.modelVersion);s.colorMode=normalizeColorMode(value.colorMode);
+  if(s.era==='early-universe'){
+    s.particleModelVersion=[1,2].includes(value.particleModelVersion)?value.particleModelVersion:0;
+    s.particleSeconds=Number.isFinite(value.particleSeconds)&&value.particleSeconds>=0?Math.min(1e6,value.particleSeconds):0;
+    s.lightStyle=['wave','beam'].includes(value.lightStyle)?value.lightStyle:'packet';
+  }
   s.simulationDays=positiveDays(value.simulationDays);s.rotationDaysElapsed=positiveDays(value.rotationDaysElapsed??value.simulationDays);
   if(Object.hasOwn(MOTION_RATES,value.motion))s.motion=value.motion;
   s.motionDaysPerSecond=normalizeMotionRate(value.motionDaysPerSecond);s.motionTrackTarget=value.motionTrackTarget!==false;

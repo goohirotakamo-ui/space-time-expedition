@@ -21,3 +21,38 @@ body>header{grid-row:1}body>main{grid-row:2;min-height:0;min-width:0;overflow:hi
 @media(max-height:650px){.impact-window-bottom{bottom:73px;left:9%;right:9%}.impact-is-active .impact-window video{padding:0}}
 .impact-window-bottom p{font-size:13px;line-height:1.5}.impact-window-bottom small+small::before{content:" · ";white-space:pre}
 .flight-drawer:has([data-flight-pane="pilot"]:not([hidden])){bottom:auto}
+.flight-light-route{border:1px solid #486371;border-radius:6px;padding:4px 7px}.flight-light-route summary{cursor:pointer;color:#a4e5e3;font-size:12px}.flight-light-route[open]{display:flex;flex-wrap:wrap;gap:5px}.flight-light-route label{margin:6px 0}.flight-target-help{color:#a7cdd4}
+.flight-light-route[open]{display:block}.flight-light-route[open]>summary{width:100%;margin-bottom:4px}.flight-light-route[open]>label{display:inline-flex;width:calc(100% - 94px);min-width:150px;margin:0;vertical-align:middle}.flight-light-route[open]>button{display:inline-block;margin-left:4px;vertical-align:middle;white-space:nowrap}.flight-pane:has(.flight-light-route[open]) .flight-keyboard-help{display:none}
+.particle-zone .scene-label,.particle-zone .solar-bearing,.particle-zone .solar-target-marker{display:none!important}
+.particle-zone .solar-window{inset:50px 3% 37%}.particle-zone .solar-canvas{cursor:default}
+.particle-stage-tabs{position:absolute;top:12px;left:3%;right:3%;display:flex;gap:7px;z-index:4;justify-content:center}
+.particle-stage-tabs button{font-size:13px;min-height:32px;border:1px solid #436577;background:#152d40;color:#cde5ef;border-radius:7px;padding:5px 14px}.particle-stage-tabs button[aria-pressed=true]{background:#85d9da;color:#082635;border-color:#b4ffff}
+.particle-zone .science-badge{top:auto;bottom:76px;right:22px}.particle-caption{position:absolute;bottom:25%;left:7%;right:7%;z-index:4;text-align:center;margin:0;font-size:13px;background:#071521e8;border-radius:8px;padding:7px;color:#d8edf5;line-height:1.5}
+@media(max-width:850px){.particle-stage-tabs{gap:4px}.particle-stage-tabs button{font-size:11px;padding:5px 7px}.particle-caption{font-size:11px}}
+/* Keep the glass for the view. Controls and explanations occupy the console
+   below it, or a separate column beside the cockpit. */
+.ship-workspace{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;height:100%;min-height:0;min-width:0}
+.ship-workspace:has(.flight-drawer.open){grid-template-columns:minmax(0,1fr) 330px}
+.ship-workspace>.flight-drawer{position:static;inset:auto;width:auto;max-width:none;height:100%;min-height:0;overflow:auto;box-shadow:none;backdrop-filter:none}
+.solar-zone .solar-window,.particle-zone .solar-window{inset:0 0 116px}
+.cockpit-console{position:absolute;inset:auto 0 0;height:116px;z-index:4;background:linear-gradient(180deg,#0715214d,#0715219c 45%,#071521c4)}
+.console-toolbar{position:absolute;top:8px;left:12px;right:12px;height:32px;display:flex;align-items:center;justify-content:flex-end}
+.console-toolbar .window-tools{position:static;inset:auto;display:flex;flex-wrap:nowrap;justify-content:flex-end}
+.cockpit-console .cockpit-controls{bottom:10px;left:13%;right:13%}
+.console-toolbar .particle-stage-tabs{position:static;inset:auto;width:100%;display:flex;justify-content:center}
+.impact-is-active .cockpit-console{visibility:hidden}
+.impact-is-active .impact-window video{inset:0 0 116px;height:calc(100% - 116px);padding:0}
+.impact-console{position:absolute;left:18px;right:18px;bottom:12px;min-height:80px;max-height:100px;z-index:4;display:flex;flex-direction:column;justify-content:center;padding:9px 12px;border:1px solid #314e5c;border-radius:9px;background:#071420ee}
+.impact-console .impact-window-loading{position:static;margin:0 0 6px;padding:0;background:none;font-size:12px;line-height:1.4;text-align:left}
+.impact-console .impact-window-controls{margin:0}
+.impact-console [hidden]{display:none!important}
+@media(max-width:850px){.ship-workspace:has(.flight-drawer.open){grid-template-columns:minmax(0,1fr) 290px}.cockpit-console .cockpit-controls{left:10px;right:10px}.console-toolbar .window-tools{gap:4px}.impact-console{left:12px;right:12px;padding:7px}}
+@media(max-width:699px){.ship-workspace:has(.flight-drawer.open){grid-template-columns:minmax(0,1fr) minmax(250px,47%)}.ship-workspace:has(.flight-drawer.open) .command{font-size:11px;gap:3px}.ship-workspace:has(.flight-drawer.open) .command .icon{display:none}.console-toolbar .window-tools .button{padding-inline:5px}.impact-console .impact-window-controls{flex-wrap:wrap}.impact-console .impact-window-controls input{min-width:80px}.impact-console .impact-window-controls button{font-size:10px}}
+/* The optional UFO layer contains artwork only and never intercepts steering. */
+.ufo-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+.ufo-overlay[hidden]{display:none}
+.secret-item-art{display:grid;place-items:center;min-height:130px;background:radial-gradient(ellipse,#23424f,#102131 70%);border:1px solid #52616a;border-radius:14px;padding:12px}
+.secret-item-art svg{display:block;width:min(210px,45vw);max-height:24vh;height:auto}
+.secret-item-description{text-align:center;margin-top:16px}
+.secret-item-description h3{color:var(--gold);margin:12px 0;font-size:22px}
+.collection-tabs .secret-item-button{color:var(--gold);border-color:#8c7953;background:#28343c}

@@ -62,7 +62,7 @@ export function getSamplingContext(world={}){
   const measured=locations.map(location=>({...location,distance:valid?length(sub(position,location.position)):Infinity}));
   // Keep sites resolvable for old saved records; gate only new observations.
   const phaseBlocked=world.era==='early-universe'&&eventStage(world.era,world.eventProgress).index<3;
-  const phaseMessage=phaseBlocked?'この記録は約38万年後の晴れ上がりで採ります。「最後の姿へ」でその時点に進めます。':'';
+  const phaseMessage=phaseBlocked?'この記録は約38万年後の晴れ上がりで採ります。「④ 晴れ上がり」を選ぶと採集できます。':'';
   const available=phaseBlocked?[]:measured.filter(location=>location.distance<=location.radius+Math.max(1e-12,location.radius*1e-9)).sort((a,b)=>a.distance-b.distance);
   const nearest=measured.reduce((best,location)=>!best||location.distance<best.distance?location:best,null);
   return {locations:measured,current:available[0]||null,nearest,distance:nearest?.distance??Infinity,available,phaseMessage};

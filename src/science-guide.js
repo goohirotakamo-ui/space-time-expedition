@@ -8,6 +8,8 @@ import {visualProfile} from './visual-science.js';
 // The guide changes where the explanations appear, not the model or its data.
 const SOURCES={
   'early-universe':[
+    {title:'NASA：電子による光の散乱と宇宙の晴れ上がり',url:'https://science.nasa.gov/universe/stories/quick-reads/what-can-we-learn-from-the-universes-baby-picture/'},
+    {title:'NASA Hubble：原子核の形成と原子になるまで',url:'https://science.nasa.gov/mission/hubble/science/science-behind-the-discoveries/hubble-big-bang/'},
     {title:'ESA Planck：宇宙の晴れ上がりと宇宙背景放射',url:'https://www.esa.int/Science_Exploration/Space_Science/Planck/Planck_and_the_cosmic_microwave_background'},
     {title:'Planck Collaboration（2018）：宇宙年齢と宇宙論の観測値',url:'https://arxiv.org/pdf/1807.06209'},
     {title:'Chluba・Sunyaev（2009）：水素とヘリウムの再結合',url:'https://arxiv.org/pdf/0909.2378'}
@@ -70,6 +72,7 @@ export function scienceGuide(world={}){
     label:current?'観測を参考にした模型':'研究を参考にした模型',
     paragraphs:uniqueParagraphs([
       era.note,
+      era.id==='early-universe'&&[1,2].includes(world.particleModelVersion)&&'粒子と光の図は、宇宙の一部を拡大した説明模型です。最初は誕生から約1秒ごろで、ビッグバン直後の未知の状態や陽子・中性子ができるまでの過程は省略しています。数分後の核反応では途中の反応を省略し、陽子と中性子からヘリウム原子核ができる結果を示します。電子が結びつく時期は元素で異なり、約38万年後の水素の原子化を中心に示しています。光はこの時に初めて生まれたのではなく、それ以前から存在します。電子の雲は惑星のような軌道を表していません。',
       formation&&`いまの形成段階：${formation.label}（${formation.ageLabel}）。${formation.note}`,
       event?.note,
       ...notes,

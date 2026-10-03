@@ -1,10 +1,18 @@
-import {add, cross, mul, unit} from './solar-system.js';
+import {AU_KM,add, cross, mul, unit} from './solar-system.js';
 
 // These stages illustrate a process, not a gravitational or hydrodynamic model.
 // The positions and radii of the actual solar-system bodies remain in AU.
 const smooth=(a,b,v)=>{const x=Math.max(0,Math.min(1,(v-a)/(b-a)));return x*x*(3-2*x);};
 export const eventProgress=state=>Number.isFinite(state.eventProgress)?Math.max(0,Math.min(1,state.eventProgress)):1;
 export const WHITE_DWARF_SHELL_AXES=Object.freeze([240,260,235]);
+// Main C/B/A rings only. Distances are measured from Saturn's centre, in km.
+// NASA NSSDCA: https://nssdc.gsfc.nasa.gov/planetary/factsheet/satringfact.html
+export const SATURN_RINGS_KM=Object.freeze({inner:74658,bRing:91975,gapInner:117507,gapOuter:122340,outer:136780});
+export function saturnRingProfile(body){
+  if(!body?.hasRings||body.id!=='saturn'||!(body.radius>0))return null;
+  const radiusKm=body.radius*AU_KM,tilt=body.axialTilt??.467;
+  return {normal:[Math.sin(tilt),Math.cos(tilt),0],edges:[SATURN_RINGS_KM.inner,SATURN_RINGS_KM.bRing,SATURN_RINGS_KM.gapInner,SATURN_RINGS_KM.gapOuter].map(km=>km/radiusKm),outer:SATURN_RINGS_KM.outer/radiusKm};
+}
 
 export function eventVisuals(state,bodies){
   const progress=eventProgress(state),earth=bodies.find(body=>body.id==='earth');

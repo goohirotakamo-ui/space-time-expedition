@@ -53,6 +53,7 @@ export const COMPARISONS = [
 ];
 export const RANKS = ['見習い調査員','宇宙探検家','星の調査員','時空調査員','宇宙の案内人'];
 export const RANK_HINTS = ['旅を始める','初めての撮影・採集','ミッションを1つ達成','3つのミッションを達成','3ミッションを終えて発表PDFを作成'];
+// Retained for saved expeditions that started before individual assignments.
 export const MISSIONS = [
   { id:'origin', title:'宇宙の始まりを記録しよう', badge:'宇宙の記録係', description:'まだ星のない宇宙を観察して、写真に残す。', tasks:[
     {type:'observe', scene:'early-universe', label:'宇宙の晴れ上がりを観察する'},
@@ -65,6 +66,48 @@ export const MISSIONS = [
     {type:'photo', scene:'sun', label:'現在の太陽を撮影する'},
     {type:'photo', scene:'red-giant', label:'赤色巨星の太陽を撮影する'},
     {type:'observe', scene:'white-dwarf', label:'白色矮星を観察する'}]}
+];
+// Each slot offers equivalent ways to investigate the same part of the unit.
+// Fixed era groups keep every assignment at eight tasks across all seven stops.
+export const MISSION_POOLS = [
+  {id:'origin',title:'宇宙の始まりから惑星の材料へ',badge:'宇宙の記録係',description:'まだ星のない宇宙と、惑星の材料が集まる時代を調べる。',taskChoices:[
+    [
+      {type:'photo',scene:'early-universe',label:'宇宙の晴れ上がりを撮影する'},
+      {type:'sample',scene:'early-universe',sample:'ancient-light',label:'晴れ上がりの観測点Aで太古の光を記録する'},
+      {type:'sample',scene:'early-universe',sample:'ancient-light-b',label:'晴れ上がりの観測点Bで太古の光を記録する'}
+    ],
+    [
+      {type:'sample',scene:'solar-nebula',sample:'stardust',label:'太陽系のはじまりで内側のちりを採集する'},
+      {type:'sample',scene:'solar-nebula',sample:'ice',label:'太陽系のはじまりで外側の氷を採集する'}
+    ]
+  ]},
+  {id:'formation',title:'地球の昔と今を比べよう',badge:'太陽系の調査員',description:'誕生期と現在の地球を撮影し、指定された場所のサンプルも集める。',taskChoices:[
+    [{type:'photo',scene:'young-earth',label:'誕生期の地球を撮影する'}],
+    [{type:'photo',scene:'earth',label:'現在の青い地球を撮影する'}],
+    [
+      {type:'sample',scene:'young-earth',sample:'rock',label:'誕生期の地球の上空で岩石を採集する'},
+      {type:'sample',scene:'young-earth',sample:'planet-fragments',label:'誕生期の地球の周辺で岩片を採集する'},
+      {type:'sample',scene:'earth',sample:'earth-light',label:'現在の地球の観測点で海や雲を記録する'},
+      {type:'sample',scene:'earth',sample:'moon-light',label:'現在の月の観測点で岩石の表面を記録する'}
+    ]
+  ]},
+  {id:'sun-life',title:'太陽の一生をたどろう',badge:'太陽の観測員',description:'現在の太陽、赤色巨星、白色矮星の3つの時代に記録を残す。',taskChoices:[
+    [
+      {type:'photo',scene:'sun',label:'現在の太陽を撮影する'},
+      {type:'sample',scene:'sun',sample:'sun-light',label:'現在の太陽に近い観測点で光を記録する'},
+      {type:'sample',scene:'sun',sample:'far-sun-light',label:'現在の太陽から離れた観測点で光を記録する'}
+    ],
+    [
+      {type:'photo',scene:'red-giant',label:'赤色巨星の太陽を撮影する'},
+      {type:'sample',scene:'red-giant',sample:'giant-light',label:'赤色巨星に近い観測点で光を記録する'},
+      {type:'sample',scene:'red-giant',sample:'far-giant-light',label:'赤色巨星から離れた観測点で光を記録する'}
+    ],
+    [
+      {type:'photo',scene:'white-dwarf',label:'白色矮星を撮影する'},
+      {type:'sample',scene:'white-dwarf',sample:'dwarf-light',label:'白色矮星の観測点で光を記録する'},
+      {type:'sample',scene:'white-dwarf',sample:'nebula-light',label:'白色矮星の周囲に放出されたガスの光を記録する'}
+    ]
+  ]}
 ];
 export const sceneById = id => id==='solar-system'?SOLAR_SCENE:SCENES.find(s => s.id === id);
 export const sampleById = id => SAMPLES.find(s => s.id === id);

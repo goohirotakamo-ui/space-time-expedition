@@ -14,6 +14,7 @@ export const NATURAL_TINTS=Object.freeze({
 });
 
 export function visualProfile(world={}){
+  if(world.era==='early-universe'&&[1,2].includes(world.particleModelVersion))return {modelVersion:2,colorMode:'diagram',colorLabel:'粒子と光の拡大模型',colorNote:'肉眼では見えない粒子を色分けしています。色・大きさ・個数の割合・間隔・動く速さは説明用です。電子の雲は位置の広がりの記号で、惑星のような軌道ではありません。',backgroundKind:'starless',backgroundLabel:'まだ星のない宇宙の一部',backgroundNote:'枠は宇宙の端ではありません。最初の場面は誕生から約1秒ごろで、それより前は省略しています。',skySeed:0,natural:false};
   const modern=world.modelVersion>=2,colorMode=modern&&world.colorMode!=='enhanced'?'natural':'enhanced';
   const historical=modern?HISTORICAL_SKIES[world.era]:null;
   const starless=world.era==='early-universe';

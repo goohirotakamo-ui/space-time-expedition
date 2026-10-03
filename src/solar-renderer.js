@@ -1,6 +1,9 @@
 import {getBodies,basis,sub} from './solar-system.js';
-import {eventVisuals,WHITE_DWARF_SHELL_AXES} from './solar-effects.js';
+import {eventVisuals,WHITE_DWARF_SHELL_AXES,saturnRingProfile} from './solar-effects.js';
 import {visualProfile,NATURAL_COLOR_GLSL,RECOMBINATION_COLOR_GLSL} from './visual-science.js';
+
+import {isParticleView,drawParticleUniverse} from './early-universe-particles.js';
+import {drawUfo} from './ufo-visual.js';
 
 const CURRENT_APPEARANCES={io:15,europa:16,ganymede:17,titan:18,callisto:10,ceres:10,pluto:19};
 export const renderAppearance=body=>body.eraAppearance??CURRENT_APPEARANCES[body.id]??body.appearance??body.index??10;
@@ -22,8 +25,9 @@ uniform vec2 uResolution;
 uniform vec3 uRight,uUp,uForward,uCamera;
 uniform vec4 uBodies[${maxBodies}],uMaterial[${maxBodies}];
 uniform vec4 uSun,uSaturn,uComet,uEarth;
+uniform vec4 uRingEdges;
 uniform vec3 uShellAxes;
-uniform float uSaturnTilt,uCometActivity,uEra,uLoaded,uEventProgress,uClock,uImpact,uDebris;
+uniform float uSaturnTilt,uRingOuter,uCometActivity,uEra,uLoaded,uEventProgress,uClock,uImpact,uDebris;
 uniform float uNatural,uIllustratedSky,uSkySeed;
 uniform sampler2D uAtlas,uSky;
 const float PI=3.14159265359;
@@ -71,8 +75,39 @@ vec3 evolvingGas(vec3 n,float kind,float future){
  high=mix(high,high*.61+vec3(.13,.16,.19),future);
  return mix(low,high,clamp(.20+bands*.52+wisps*.27,0.,1.));
 }
+vec3 accretingGas(vec3 n,float saturn){
+ // These warm, irregular clouds are a formative model, without today's belts
+ // or the Great Red Spot. Both objects remain gas-rich, never rocky spheres.
+ float eddies=terrain(n*5.+vec3(4.,saturn*7.,1.));
+ float cloud=terrain(n*17.+eddies*3.);
+ float lanes=.5+.5*sin(n.y*13.+eddies*8.);
+ vec3 low=mix(vec3(.24,.13,.075),vec3(.33,.21,.12),saturn);
+ vec3 high=mix(vec3(.90,.65,.40),vec3(.92,.77,.53),saturn);
+ return mix(low,high,clamp(eddies*.35+cloud*.42+lanes*.23,0.,1.));
+}
+vec3 rockEmbryo(vec3 n,float kind){
+ float crust=terrain(n*7.+kind*3.),fissure=1.-smoothstep(.017,.060,abs(noise(n*29.)-.5));
+ vec3 stone=mix(vec3(.12,.10,.075),vec3(.39,.27,.16),crust);
+ float hot=fissure*smoothstep(.38,.73,terrain(n*4.));
+ vec3 color=mix(stone,vec3(.93,.31,.055),hot*mix(.85,.50,kind*.5));
+ if(kind>.5&&kind<1.5){float steam=terrain(n*11.+4.);color=mix(color,vec3(.60,.49,.37),smoothstep(.49,.72,steam)*.63);}
+ return color;
+}
+vec3 icyEmbryo(vec3 n,float outer){
+ float patches=terrain(n*5.+outer*8.);vec3 dust=rock(n,0.);
+ return mix(dust,rock(n,1.)*mix(vec3(.82,.80,.75),vec3(.88,.86,.81),outer),smoothstep(.38,.68,patches));
+}
 ${NATURAL_COLOR_GLSL}
 vec3 surface(float id,vec3 n){
+ if(id>35.5){
+   if(id<38.5)return rockEmbryo(n,id-36.);
+   if(id<40.5)return accretingGas(n,id-39.);
+   if(id<42.5)return icyEmbryo(n,id-41.);
+   if(id<43.5)return mix(rock(n,0.),vec3(.21,.17,.145),terrain(n*6.)*.45);
+   if(id<47.5){vec3 gas=evolvingGas(n,id-44.,1.);float haze=terrain(n*4.+id);
+     return mix(gas,vec3(.47,.48,.47),.23+haze*.12);}
+   return mix(rock(n,0.),vec3(.32,.29,.25),.28);
+ }
  if(id>19.5){
    if(id<20.5)return youngRock(n,0.);
    if(id<21.5){float steam=terrain(n*8.);return mix(vec3(.42,.24,.14),vec3(.83,.66,.45),.36+steam*.57);}
@@ -178,9 +213,22 @@ vec3 dyingStarGas(vec3 color,vec3 ray,float closest){
  return color;
 }
 float eclipse(vec3 point,vec3 light,float lightDistance){float visible=1.;
- for(int j=0;j<${maxBodies};j++){vec3 offset=uBodies[j].xyz-point;float r=uBodies[j].w,along=dot(offset,light);vec3 off=offset-light*along;
+ for(int j=0;j<${maxBodies};j++){
+ // The light source cannot eclipse itself. In particular a white dwarf is
+ // smaller than a giant planet: a centre-based distance check alone counted
+ // the star as a blocker and painted a false black disk on the lit hemisphere.
+ float id=uMaterial[j].x;if(id<.5||(id>12.5&&id<14.5))continue;
+ vec3 offset=uBodies[j].xyz-point;float r=uBodies[j].w,along=dot(offset,light);vec3 off=offset-light*along;
  if(r>0.&&along>r*.02&&along<lightDistance-r&&dot(off,off)<r*r)visible=.07;}
  return visible;
+}
+float ringOpacity(float radial,float filterWidth){
+ float w=max(.0001,filterWidth);
+ float annulus=smoothstep(uRingEdges.x-w,uRingEdges.x+w,radial)*(1.-smoothstep(uRingOuter-w,uRingOuter+w,radial));
+ float b=smoothstep(uRingEdges.y-w,uRingEdges.y+w,radial)*(1.-smoothstep(uRingEdges.z-w,uRingEdges.z+w,radial));
+ float a=smoothstep(uRingEdges.w-w,uRingEdges.w+w,radial);
+ float division=smoothstep(uRingEdges.z-w,uRingEdges.z+w,radial)*(1.-smoothstep(uRingEdges.w-w,uRingEdges.w+w,radial));
+ return annulus*(.24+b*.66+a*.46)*(1.-division*.90);
 }
 void main(){
  vec3 ray=normalize(uForward+uRight*uv.x*(uResolution.x/uResolution.y)*.532+uUp*uv.y*.532);
@@ -232,13 +280,13 @@ void main(){
        float fissure=(1.-smoothstep(.015,.055,abs(noise(local*31.)-.5)))*smoothstep(.63,.79,terrain(local*6.));
        color+=vec3(.52,.075,.003)*fissure*(material.x<20.5 ? .22 : .08);
      }
-     if(abs(material.x-21.)<.1||(material.x>22.5&&material.x<26.5)||(material.x>30.5&&material.x<34.5)){
+     if(abs(material.x-21.)<.1||(material.x>22.5&&material.x<26.5)||(material.x>30.5&&material.x<34.5)||abs(material.x-37.)<.1||(material.x>38.5&&material.x<40.5)||(material.x>43.5&&material.x<47.5)){
        float rim=pow(1.-max(0.,dot(norm,-ray)),4.);color+=albedo*rim*(.035+sunlight*.16);
      }
-     if(material.x>5.5&&material.x<6.5){
+     if(uSaturn.w>0.&&material.x>5.5&&material.x<6.5){
        vec3 ringN=vec3(sin(uSaturnTilt),cos(uSaturnTilt),0.);float den=dot(light,ringN);
        if(abs(den)>.001){float t=-dot(norm*radius,ringN)/den;float rr=length(norm*radius+light*t)/radius;
-       if(t>0.&&rr>1.25&&rr<2.35)color*=.27;}
+       if(t>0.)color*=1.-ringOpacity(rr,.004)*.82;}
      }
    }
  }
@@ -271,12 +319,20 @@ void main(){
  // The tilted rings cast a shadow on Saturn and receive the planet's shadow.
  if(uSaturn.w>0.){
    vec3 ringN=vec3(sin(uSaturnTilt),cos(uSaturnTilt),0.);float den=dot(ray,ringN);
-   if(abs(den)>.0001){float t=dot(uSaturn.xyz,ringN)/den;vec3 p=ray*t-uSaturn.xyz;float rr=length(p)/uSaturn.w;
-     if(t>0.&&t<closest&&rr>1.25&&rr<2.35){float band=.54+.21*sin(rr*227.)+.15*sin(rr*541.);
-       float gap=1.-smoothstep(.018,.035,abs(rr-1.93));vec3 rc=mix(vec3(.28,.24,.18),vec3(.85,.77,.59),band);
+   if(abs(den)>.000001){
+     // Work in Saturn radii to avoid precision loss with near-planet AU values.
+     vec3 c=uSaturn.xyz/uSaturn.w;float rayDistance=dot(c,ringN)/den;
+     float t=rayDistance*uSaturn.w;vec3 p=ray*rayDistance-c;float rr=length(p);
+     float footprint=max(.0002,rayDistance*pixelAngle*.35/max(.04,abs(den)));
+     if(t>0.&&t<closest&&rr>uRingEdges.x-footprint&&rr<uRingOuter+footprint){
+       float bands=.53+.09*sin(rr*39.)*exp(-footprint*39.);
+       bands+=.12*sin(rr*227.)*exp(-pow(footprint*227.,2.));
+       bands+=.07*sin(rr*541.)*exp(-pow(footprint*541.,2.));
+       vec3 rc=mix(vec3(.38,.33,.25),vec3(.88,.82,.68),bands);
        vec3 light=normalize(uSun.xyz-uSaturn.xyz);float along=dot(-p,light);vec3 off=-p-light*along;
-       if(along>0.&&length(off)<uSaturn.w)rc*=.14;
-       color=mix(color,rc,.85*(1.-gap*.97));closest=t;
+       if(along>0.&&length(off)<1.)rc*=.14;
+       float opacity=ringOpacity(rr,footprint);
+       color=mix(color,rc,opacity);if(opacity>.05)closest=t;
      }
    }
  }
@@ -353,14 +409,14 @@ void main(){
 export function createSolarRenderer(canvas){
   const gl=canvas.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:true,powerPreference:'low-power'});
   if(!gl)throw new Error('この端末で3D表示を開始できませんでした。WebGLが使えるChromeで開いてください。');
-  const capacity=Math.min(25,Math.max(4,Math.floor((gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS)-26)/2)));
+  const capacity=Math.min(25,Math.max(4,Math.floor((gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS)-28)/2)));
   function shader(type,source){const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){const message=gl.getShaderInfoLog(s);gl.deleteShader(s);throw new Error('3D描画の準備に失敗しました: '+message);}return s;}
   const vs=shader(gl.VERTEX_SHADER,vertex),fs=shader(gl.FRAGMENT_SHADER,fragmentSource(capacity)),program=gl.createProgram();
   gl.attachShader(program,vs);gl.attachShader(program,fs);gl.linkProgram(program);
   if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error('3D描画を開始できませんでした。');
   gl.useProgram(program);const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
   const attr=gl.getAttribLocation(program,'aPosition');gl.enableVertexAttribArray(attr);gl.vertexAttribPointer(attr,2,gl.FLOAT,false,0,0);
-  const names=['uResolution','uRight','uUp','uForward','uCamera','uBodies[0]','uMaterial[0]','uSun','uSaturn','uSaturnTilt','uComet','uCometActivity','uEarth','uShellAxes','uEventProgress','uClock','uImpact','uDebris','uEra','uLoaded','uAtlas','uSky','uNatural','uIllustratedSky','uSkySeed'];
+  const names=['uResolution','uRight','uUp','uForward','uCamera','uBodies[0]','uMaterial[0]','uSun','uSaturn','uSaturnTilt','uRingEdges','uRingOuter','uComet','uCometActivity','uEarth','uShellAxes','uEventProgress','uClock','uImpact','uDebris','uEra','uLoaded','uAtlas','uSky','uNatural','uIllustratedSky','uSkySeed'];
   const uniforms=Object.fromEntries(names.map(n=>[n,gl.getUniformLocation(program,n)]));
   let lost=false,loaded=false,lastState=null;
   const textures=textureImages.map((_,i)=>{const t=gl.createTexture();gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,t);
@@ -389,7 +445,9 @@ export function createSolarRenderer(canvas){
     gl.uniform2f(uniforms.uResolution,canvas.width,canvas.height);
     gl.uniform3fv(uniforms.uRight,view.right);gl.uniform3fv(uniforms.uUp,view.up);gl.uniform3fv(uniforms.uForward,view.forward);gl.uniform3fv(uniforms.uCamera,state.position);
     gl.uniform4fv(uniforms['uBodies[0]'],positions);gl.uniform4fv(uniforms['uMaterial[0]'],materials);
-    gl.uniform4fv(uniforms.uSun,asUniform('sun'));gl.uniform4fv(uniforms.uSaturn,all.find(body=>body.id==='saturn')?.hasRings?asUniform('saturn'):[0,0,0,0]);gl.uniform4fv(uniforms.uComet,asUniform('halley'));
+    const ring=saturnRingProfile(all.find(body=>body.id==='saturn'));
+    gl.uniform4fv(uniforms.uSun,asUniform('sun'));gl.uniform4fv(uniforms.uSaturn,ring?asUniform('saturn'):[0,0,0,0]);gl.uniform4fv(uniforms.uComet,asUniform('halley'));
+    gl.uniform4fv(uniforms.uRingEdges,ring?.edges??[0,0,0,0]);gl.uniform1f(uniforms.uRingOuter,ring?.outer??0);
     gl.uniform4fv(uniforms.uEarth,asUniform('earth'));gl.uniform3fv(uniforms.uShellAxes,WHITE_DWARF_SHELL_AXES);
     gl.uniform1f(uniforms.uEventProgress,effects.progress);gl.uniform1f(uniforms.uImpact,effects.impact);gl.uniform1f(uniforms.uDebris,effects.debris);
     gl.uniform1f(uniforms.uClock,((state.rotationDaysElapsed??state.simulationDays) || 0)%10000);
@@ -407,10 +465,15 @@ export function createSolarRenderer(canvas){
 }
 let photoRenderer,photoCanvas;
 export function drawSolarPhoto(ctx,snapshot,x,y,width,height){
+  if(isParticleView(snapshot)){drawParticleUniverse(ctx,snapshot,x,y,width,height);return;}
   if(!photoCanvas){photoCanvas=document.createElement('canvas');photoRenderer=createSolarRenderer(photoCanvas);}
   const aspect=snapshot.aspect||16/9;
   photoCanvas.width=Math.min(1280,Math.max(640,Math.round(width)));photoCanvas.height=Math.round(photoCanvas.width/aspect);
   photoRenderer.draw(snapshot);
   const w=Math.min(width,height*aspect),h=w/aspect;
   ctx.drawImage(photoCanvas,x+(width-w)/2,y+(height-h)/2,w,h);
+  if(snapshot.ufo?.encounter){
+    ctx.save();ctx.translate(x+(width-w)/2,y+(height-h)/2);ctx.beginPath();ctx.rect(0,0,w,h);ctx.clip();
+    drawUfo(ctx,snapshot,snapshot.ufo,w,h,{clear:false});ctx.restore();
+  }
 }

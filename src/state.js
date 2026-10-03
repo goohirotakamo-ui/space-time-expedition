@@ -1,12 +1,15 @@
-import {SCENES,SAMPLES,COMPARISONS,MISSIONS,sceneById} from './content.js';
+import {SCENES,SAMPLES,COMPARISONS,sceneById} from './content.js';
 import {defaultCamera,normalizeCamera} from './camera.js';
 import {defaultSolar,normalizeSolar,visibleBody,solarPhotoName,bodyById} from './solar-system.js';
+import {sampleParticleFields} from './sample-observation.js';
 import {getSamplingContext,getRecordedSampleLocation} from './sample-locations.js';
 import {defaultPlayback,normalizePlayback,fixedEpochWorld} from './epoch-playback.js';
+import {freshUfoState,normalizeUfoState} from './ufo-encounter.js';
+import {createMissionAssignment,normalizeMissionAssignment,assignedMissions} from './missions.js';
 export const STORAGE_KEY = 'space-time-expedition-v1';
 export const PHOTO_LIMIT = 60;
 const photoLimitMessage = '写真は60枚までです。アルバムで不要な写真の詳細を開き、削除してから撮影してください。';
-export const freshState = () => ({version:1,playback:defaultPlayback(),started:false,currentScene:'young-earth',camera:defaultCamera(),flightMode:'solar',whiteDwarfView:'explore',solar:defaultSolar(),historySolar:defaultSolar('young-earth'),observed:[],photos:[],samples:[],selected:[],titles:{},pdfCreated:false,activeMission:'origin',sound:false,reducedMotion:false,minutes:0});
+export const freshState = ({missionSeed}={}) => ({version:1,missionAssignment:createMissionAssignment(missionSeed),playback:defaultPlayback(),ufo:freshUfoState(),started:false,currentScene:'young-earth',camera:defaultCamera(),flightMode:'solar',whiteDwarfView:'explore',solar:defaultSolar(),historySolar:defaultSolar('young-earth'),observed:[],photos:[],samples:[],selected:[],titles:{},pdfCreated:false,activeMission:'origin',sound:false,reducedMotion:false,minutes:0});
 // The live overview and free flight now use one world. Legacy artwork photographs
 // still retain their image and camera, but are never used as a second live sky.
 export const usesDwarfArtwork = () => false;
@@ -26,7 +29,7 @@ export const hasSample = (state, id) => state.samples.some(s=>s.id===id);
 export function taskDone(state, task) {
   return task.type==='observe' ? state.observed.includes(task.scene) : task.type==='photo' ? hasPhoto(state,task.scene) : hasSample(state,task.sample);
 }
-export function missionProgress(state) {return MISSIONS.map(m=>({...m, count:m.tasks.filter(t=>taskDone(state,t)).length, complete:m.tasks.every(t=>taskDone(state,t))}));}
+export function missionProgress(state) {return assignedMissions(state.missionAssignment).map(m=>({...m, count:m.tasks.filter(t=>taskDone(state,t)).length, complete:m.tasks.every(t=>taskDone(state,t))}));}
 export function rankIndex(state) {
   const n=missionProgress(state).filter(m=>m.complete).length;
   if(n===3 && state.pdfCreated) return 4;
@@ -51,13 +54,18 @@ export function nextTask(state) {
 // Import only known fields. User-controlled objects never become HTML or executable code.
 export function validateState(input) {
   if(!input || typeof input!=='object' || input.version!==1) throw new Error('この探検データの形式には対応していません。');
-  const state=freshState();
+  const state=freshState({missionSeed:0});
+  state.missionAssignment=normalizeMissionAssignment(input.missionAssignment);
   if(!Array.isArray(input.photos)||!Array.isArray(input.samples)||!Array.isArray(input.observed)) throw new Error('探検データが壊れています。');
+  // A genuinely unopened old save has no assigned or earned work to preserve.
+  // Started games, rewards and every existing observation retain the old plan.
+  if(input.missionAssignment===undefined&&input.started===false&&!input.pdfCreated&&!input.ufo?.reward&&!input.photos.length&&!input.samples.length&&!input.observed.length)state.missionAssignment=createMissionAssignment();
   if(input.photos.length>PHOTO_LIMIT || input.samples.length>30) throw new Error('記録の数が多すぎます。');
   const sceneIds=new Set(SCENES.map(s=>s.id)), sampleIds=new Set(SAMPLES.map(s=>s.id));
   if(!sceneIds.has(input.currentScene)) throw new Error('不明な行き先が含まれています。');
   state.currentScene=input.currentScene;
   state.playback=normalizePlayback(input.playback,input.tour);
+  state.ufo=normalizeUfoState(input.ufo);
   state.camera=normalizeCamera(input.camera);
   state.flightMode=input.flightMode==='history'?'history':'solar';
   state.whiteDwarfView='explore';
@@ -75,7 +83,8 @@ export function validateState(input) {
       const v=p.solar;
       if(!v||v.version!==1||!Array.isArray(v.position)||v.position.length!==3||!v.position.every(n=>Number.isFinite(n)&&Math.abs(n)<=1000)||!Array.isArray(v.orientation)||v.orientation.length!==4||!v.orientation.every(Number.isFinite)||Math.hypot(...v.orientation)<1e-8)throw new Error('3D写真の記録を読み込めません。');
       const saved={...v,modelVersion:v.modelVersion===2?2:1,colorMode:v.colorMode==='natural'?'natural':'enhanced'};
-      return {id:p.id,scene:p.scene,created:validDate(p.created),solar:{...normalizeSolar(saved),subject:bodyById(saved.subject,saved)?.id||null,...(v.observationVersion===1?{observationVersion:1}:{})}};
+      const ufo=saved.ufo?.encounter?normalizeUfoState(saved.ufo):null;
+      return {id:p.id,scene:p.scene,created:validDate(p.created),solar:{...normalizeSolar(saved),subject:bodyById(saved.subject,saved)?.id||null,...(v.observationVersion===1?{observationVersion:1}:{}),...(ufo?.encounter&&ufo.encounter.era===saved.era?{ufo}:{})}};
     }
     return {id:p.id,scene:p.scene,created:validDate(p.created),...(p.camera?{camera:normalizeCamera(p.camera)}:{})};
   });
@@ -87,7 +96,7 @@ export function validateState(input) {
     if(s.sampling){
       const p=s.sampling;
       if(!['present',...sceneIds].includes(p.era)||typeof p.siteId!=='string'||!Array.isArray(p.position)||p.position.length!==3||!p.position.every(n=>Number.isFinite(n)&&Math.abs(n)<=1000)||!Number.isFinite(p.simulationDays)||p.simulationDays<0||p.simulationDays>1e9||!Number.isFinite(p.eventProgress)||p.eventProgress<0||p.eventProgress>1)throw new Error('採集地点の記録を読み込めません。');
-      record.sampling={siteId:p.siteId,era:p.era,position:[...p.position],simulationDays:p.simulationDays,rotationDaysElapsed:Number.isFinite(p.rotationDaysElapsed)?Math.max(0,Math.min(1e9,p.rotationDaysElapsed)):p.simulationDays,eventProgress:p.eventProgress};
+      record.sampling={siteId:p.siteId,era:p.era,position:[...p.position],simulationDays:p.simulationDays,rotationDaysElapsed:Number.isFinite(p.rotationDaysElapsed)?Math.max(0,Math.min(1e9,p.rotationDaysElapsed)):p.simulationDays,eventProgress:p.eventProgress,...sampleParticleFields(p)};
       record.sampling.modelVersion=p.modelVersion===2?2:1;
       record.sampling.colorMode=p.colorMode==='natural'?'natural':'enhanced';
       if(p.observationVersion===1)record.sampling.observationVersion=1;
@@ -99,7 +108,7 @@ export function validateState(input) {
   state.observed=[...new Set(input.observed)];
   state.started=!!input.started; state.pdfCreated=!!input.pdfCreated; state.sound=!!input.sound; state.reducedMotion=!!input.reducedMotion;
   if(state.reducedMotion)state.playback.playing=false;
-  state.activeMission=MISSIONS.some(m=>m.id===input.activeMission)?input.activeMission:'origin';
+  state.activeMission=assignedMissions(state.missionAssignment).some(m=>m.id===input.activeMission)?input.activeMission:'origin';
   state.minutes=Number.isFinite(input.minutes)?Math.min(1440,Math.max(0,Math.floor(input.minutes))):0;
   const keys=new Set(items(state).map(x=>x.key));
   state.selected=Array.isArray(input.selected)?[...new Set(input.selected.filter(k=>keys.has(k)))].slice(0,20):[];
@@ -143,5 +152,5 @@ export function recordSample(state,id) {
   if(context.phaseMessage)throw new Error(context.phaseMessage);
   const site=context.available.find(location=>location.sampleId===id);
   if(!sample||!site) throw new Error('この場所では採集できません。調査地点へ移動してください。');
-  if(!hasSample(state,id))state.samples.push({id,created:new Date().toISOString(),sampling:{siteId:site.id,era:world.era,position:[...world.position],simulationDays:world.simulationDays||0,rotationDaysElapsed:world.rotationDaysElapsed||0,eventProgress:world.eventProgress??1,modelVersion:world.modelVersion??2,colorMode:world.colorMode||'natural',observationVersion:1}});
+  if(!hasSample(state,id))state.samples.push({id,created:new Date().toISOString(),sampling:{siteId:site.id,era:world.era,position:[...world.position],simulationDays:world.simulationDays||0,rotationDaysElapsed:world.rotationDaysElapsed||0,eventProgress:world.eventProgress??1,modelVersion:world.modelVersion??2,colorMode:world.colorMode||'natural',observationVersion:1,...sampleParticleFields(world)}});
 }
